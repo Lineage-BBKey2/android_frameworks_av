@@ -180,6 +180,40 @@ status_t Camera3Device::initializeCommonLocked(sp<CameraProviderManager> manager
         }
     }
 
+    // Some legacy BlackBerry camera HAL devices falsely advertise working
+    // SOLID_COLOR test-pattern support. The affected cameras can continue
+    // returning live sensor frames while camera privacy is enabled.
+    //
+    // Disable test-pattern based camera muting for these cameras so
+    // CameraService falls back to blocking/disconnecting them when camera
+    // privacy is enabled.
+    camera_metadata_entry_t lensFacing = mDeviceInfo.find(ANDROID_LENS_FACING);
+    const bool isFrontCamera =
+            lensFacing.count > 0 &&
+            lensFacing.data.u8[0] == ANDROID_LENS_FACING_FRONT;
+
+    const std::string productDevice =
+            base::GetProperty("ro.product.device", "");
+
+    const bool isAthena =
+            productDevice == "athena" ||
+            productDevice == "bbf100";
+
+    const bool isLuna =
+            productDevice == "luna" ||
+            productDevice == "bbe100";
+
+    const bool hasBrokenCameraMute =
+            (isAthena && isFrontCamera) ||
+            (isLuna && (isFrontCamera || mId == "2"));
+
+    if (hasBrokenCameraMute) {
+        ALOGW("Camera %s: disabling broken camera mute support on device %s",
+                mId.c_str(), productDevice.c_str());
+        mSupportCameraMute = false;
+        mSupportTestPatternSolidColor = false;
+    }
+
     camera_metadata_entry_t availableSettingsOverrides = mDeviceInfo.find(
             ANDROID_CONTROL_AVAILABLE_SETTINGS_OVERRIDES);
     for (size_t i = 0; i < availableSettingsOverrides.count; i++) {
