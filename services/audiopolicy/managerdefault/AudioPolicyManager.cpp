@@ -2263,6 +2263,21 @@ audio_io_handle_t AudioPolicyManager::selectOutput(const SortedVector<audio_io_h
             continue;
         }
 
+        const audio_channel_mask_t outputChannelMask = outputDesc->getChannelMask();
+        const uint32_t outputChannelCount = audio_channel_count_from_out_mask(outputChannelMask);
+        // AudioFlinger opens mono VoIP outputs as direct threads even without
+        // AUDIO_OUTPUT_FLAG_DIRECT. They require matching PCM track parameters.
+        if ((outputDesc->mFlags & AUDIO_OUTPUT_FLAG_VOIP_RX) != 0 && outputChannelCount == 1 &&
+                ((samplingRate != 0 && samplingRate != outputDesc->getSamplingRate()) ||
+                 (channelMask != AUDIO_CHANNEL_NONE && channelMask != outputChannelMask) ||
+                 (format != AUDIO_FORMAT_INVALID && format != outputDesc->getFormat()))) {
+            if (bestOutput == output) {
+                // An incompatible output cannot serve as the default fallback.
+                bestOutput = AUDIO_IO_HANDLE_NONE;
+            }
+            continue;
+        }
+
         // If haptic channel is specified, use the haptic output if present.
         // When using haptic output, same audio format and sample rate are required.
         const uint32_t outputHapticChannelCount = audio_channel_count_from_out_mask(
@@ -2292,8 +2307,6 @@ audio_io_handle_t AudioPolicyManager::selectOutput(const SortedVector<audio_io_h
         currentMatchCriteria[1] = 100 * (matchingFunctionalFlags + 1) - totalFunctionalFlags;
 
         // channel mask and channel count match
-        uint32_t outputChannelCount = audio_channel_count_from_out_mask(
-                outputDesc->getChannelMask());
         if (channelMask != AUDIO_CHANNEL_NONE && channelCount > 2 &&
             channelCount <= outputChannelCount) {
             if ((audio_channel_mask_get_representation(channelMask) ==
